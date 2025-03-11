@@ -1,5 +1,6 @@
 import os
 import logging
+import ssl
 from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse
@@ -9,8 +10,11 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from pydantic import BaseModel
 from supabase import create_client, Client
-from supabase.lib.client_options import ClientOptions  # ✅ Correct import
+from supabase.lib.client_options import ClientOptions
 import uvicorn
+
+# Ensure SSL module is available
+ssl._create_default_https_context = ssl._create_unverified_context
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -35,7 +39,6 @@ try:
     if not supabase_url or not supabase_key:
         raise ValueError("Supabase credentials not properly configured")
     
-    # ✅ Fixed: Use ClientOptions instead of a dictionary
     supabase_client: Client = create_client(
         supabase_url=supabase_url,
         supabase_key=supabase_key,
@@ -108,8 +111,7 @@ async def callback(code: str):
 
         credentials = flow.credentials
         
-        # Save the credentials in Supabase
-        user_id = "de3208ff-d59b-405e-ad9a-76fc6bee30d2"  # Replace with actual user management
+        user_id = "de3208ff-d59b-405e-ad9a-76fc6bee30d2"
         supabase_client.table('private.google_oauth_user_wise').upsert({
             "user_id": user_id,
             "access_token": credentials.token,
@@ -117,7 +119,6 @@ async def callback(code: str):
             "expires_at": credentials.expiry.isoformat()
         }).execute()
 
-        # Redirect to the frontend application
         return RedirectResponse(os.getenv("FRONTEND_URL", "https://your-frontend-url.onrender.com"))
     except Exception as e:
         logger.error(f"Error in /callback: {str(e)}")
@@ -126,7 +127,6 @@ async def callback(code: str):
 @app.post("/meetings/create")
 async def create_meeting(meeting_data: MeetingData):
     try:
-        # Get the latest credentials from Supabase
         result = supabase_client.table('private.google_oauth_user_wise').select("*").limit(1).execute()
         if not result.data:
             raise HTTPException(status_code=401, detail="No credentials found")
@@ -140,31 +140,18 @@ async def create_meeting(meeting_data: MeetingData):
             client_secret=os.getenv('CLIENT_SECRET'),
         )
 
-        # Create Google Calendar service
         service = build('calendar', 'v3', credentials=credentials)
-
-        # Parse meeting time
+        
         start_time = datetime.strptime(f"{meeting_data.date} {meeting_data.time}", "%Y-%m-%d %H:%M")
         end_time = start_time + timedelta(minutes=int(meeting_data.duration))
 
-        # Create event
         event = {
             'summary': meeting_data.subject,
             'description': meeting_data.description,
-            'start': {
-                'dateTime': start_time.isoformat(),
-                'timeZone': 'UTC',
-            },
-            'end': {
-                'dateTime': end_time.isoformat(),
-                'timeZone': 'UTC',
-            },
-            'attendees': [
-                {'email': email.strip()} for email in meeting_data.attendeeEmails.split(',')
-            ],
-            'reminders': {
-                'useDefault': True
-            },
+            'start': {'dateTime': start_time.isoformat(), 'timeZone': 'UTC'},
+            'end': {'dateTime': end_time.isoformat(), 'timeZone': 'UTC'},
+            'attendees': [{'email': email.strip()} for email in meeting_data.attendeeEmails.split(',')],
+            'reminders': {'useDefault': True},
             'conferenceData': {
                 'createRequest': {
                     'requestId': f"meeting_{datetime.now().timestamp()}",
@@ -180,11 +167,7 @@ async def create_meeting(meeting_data: MeetingData):
             sendUpdates='all'
         ).execute()
 
-        return {
-            "message": "Meeting created successfully",
-            "meetingLink": event.get('hangoutLink', ''),
-            "eventId": event['id']
-        }
+        return {"message": "Meeting created successfully", "meetingLink": event.get('hangoutLink', ''), "eventId": event['id']}
     except Exception as e:
         logger.error(f"Error creating meeting: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
