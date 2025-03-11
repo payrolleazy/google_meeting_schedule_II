@@ -9,6 +9,7 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from pydantic import BaseModel
 from supabase import create_client, Client
+from supabase.lib.client_options import ClientOptions  # ✅ Correct import
 import uvicorn
 
 # Set up logging
@@ -34,16 +35,14 @@ try:
     if not supabase_url or not supabase_key:
         raise ValueError("Supabase credentials not properly configured")
     
-    # Initialize without proxy settings
+    # ✅ Fixed: Use ClientOptions instead of a dictionary
     supabase_client: Client = create_client(
         supabase_url=supabase_url,
         supabase_key=supabase_key,
-        options={
-            "auth": {
-                "autoRefreshToken": True,
-                "persistSession": True
-            }
-        }
+        options=ClientOptions(
+            auto_refresh_token=True,
+            persist_session=True
+        )
     )
 except Exception as e:
     logger.error(f"Failed to initialize Supabase client: {str(e)}")
